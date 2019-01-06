@@ -22,7 +22,7 @@ class PyMacroParser(object):
                 file.close()
         except IOError:
             print "cannot read file"
-        totalLine = len(self.lines)
+        self.totalLine = len(self.lines)
 
     def preDefine(self, s):
         self.preDefinedMacro.clear()
