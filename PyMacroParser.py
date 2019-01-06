@@ -4,6 +4,7 @@ class PyMacroParser(object):
     preDefinedMacro = {}  # pre-defined macro dictionary
     macroDict = {}        # macro transfer dictionary
     currentLine = 0
+    totalLine = 0
     hasPreComment = False
     stateStack = []
 
@@ -21,6 +22,7 @@ class PyMacroParser(object):
                 file.close()
         except IOError:
             print "cannot read file"
+        totalLine = len(self.lines)
 
     def preDefine(self, s):
         self.preDefinedMacro.clear()
@@ -55,8 +57,7 @@ class PyMacroParser(object):
             self.macroDict[name] = value
 
         self.currentLine = 0
-        lineNum = len(self.lines)
-        while self.currentLine < lineNum:
+        while self.currentLine < self.totalLine:
             self._parseLine(self.lines[self.currentLine])
             self.currentLine += 1
 
