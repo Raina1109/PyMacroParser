@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*
 class PyMacroParser(object):
     lines = []            # codes read from c++ file
+    parsedLines = []
     preDefinedMacro = {}  # pre-defined macro dictionary
     macroDict = {}        # macro transfer dictionary
     currentLine = 0
@@ -58,96 +59,179 @@ class PyMacroParser(object):
 
         self.currentLine = 0
         while self.currentLine < self.totalLine:
-            self._parseLine(self.lines[self.currentLine])
-            self.currentLine += 1
+            sentence = self._getSentence()
+            self._parseSentence(sentence)
 
-    def _parseLine(self, line):
-        invalid = {' ', '\t'}
-        line = self._parseComment(line)
-        line = line.strip()
-        if len(line) > 0:
-            print line
-            macroState = ''
-            index = 1
-            while index < len(line) and line[index] in invalid:
-                index += 1
-            while index < len(line) and line[index] not in invalid:
-                macroState += line[index]
-                index += 1
-            while index < len(line) and line[index] in invalid:
-                index += 1
-            macroName = ''
-            while index < len(line) and line[index] not in invalid:
-                macroName += line[index]
-                index += 1
-            macroValue = ''
-            while index < len(line) and line[index] in invalid:
-                index += 1
-            while index < len(line):
-                macroValue += line[index]
-                index += 1
-            #print 'macroState: ' + macroState
-            #print 'macroName: ' + macroName
-            #print 'macroValue: ' + macroValue
-            if macroState == 'ifndef':
-                currentState = True
-                lastState = True
-                if macroName in self.macroDict:
-                    currentState = False
-                if len(self.stateStack) > 0:
-                    if not self.stateStack[-1][1] or not self.stateStack[-1][2]:
-                        lastState = False
-                self.stateStack.append(['if', currentState, lastState])
-            elif macroState == 'define':
-                if len(macroName) > 0:
-                    if len(self.stateStack) == 0 or self.stateStack[-1][1] and self.stateStack[-1][2]:
-                        if len(macroValue) > 0:
-                            result = self._parseMacroValue(macroValue)
-                            self.macroDict[macroName] = result
-                        else:
-                            self.macroDict[macroName] = None
-            elif macroState == 'ifdef':
-                currentState = True
-                lastState = True
-                if macroName not in self.macroDict:
-                    currentState = False
-                if len(self.stateStack) > 0:
-                    if not self.stateStack[-1][1] or not self.stateStack[-1][2]:
-                        lastState = False
-                self.stateStack.append(['if', currentState, lastState])
-            elif macroState == 'else':
-                content = self.stateStack[-1]
-                if content[0] == 'if':
-                    self.stateStack.append(['else', not content[1], content[2]])
+    def _getSentence(self):
+        sentence = ''
+        end = False
+        while self.currentLine < self.totalLine:
+            if len(self.parsedLines) >= self.currentLine + 1:
+                line = self.parsedLines[self.currentLine]
+            else:
+                line = self.lines[self.currentLine]
+                line = self._parseComment(line).strip()
+                self.parsedLines.append(line)
+            if len(line) == 0:
+                self.currentLine += 1
+            else:
+                if line[0] != '#':
+                    self.currentLine += 1
+                    sentence += line + ' '
                 else:
-                    raise NameError('many else!')
-            elif macroState == 'endif':
-                if len(self.stateStack) == 0:
-                    raise NameError('no if!')
-                else:
-                    while self.stateStack[-1][0] != 'if':
-                        self.stateStack.pop()
-                    self.stateStack.pop()
-            elif macroState == 'undef':
+                    if end:
+                        break
+                    else:
+                        sentence += line + ' '
+                        end = True
+                        self.currentLine += 1
+        print sentence
+        return sentence[0: -1]
+
+    def _parseSentence(self, sentence):
+        invalid = {' ', '\t', '\r', '\f'}
+        macroState = ''
+        index = 1
+        while index < len(sentence) and sentence[index] in invalid:
+            index += 1
+        while index < len(sentence) and sentence[index] not in invalid:
+            macroState += sentence[index]
+            index += 1
+        while index < len(sentence) and sentence[index] in invalid:
+            index += 1
+        macroName = ''
+        while index < len(sentence) and sentence[index] not in invalid:
+            macroName += sentence[index]
+            index += 1
+        macroValue = ''
+        while index < len(sentence) and sentence[index] in invalid:
+            index += 1
+        while index < len(sentence):
+            macroValue += sentence[index]
+            index += 1
+        #print 'macroState: ' + macroState
+        #print 'macroName: ' + macroName
+        #print 'macroValue: ' + macroValue
+        if macroState == 'ifndef':
+            currentState = True
+            lastState = True
+            if macroName in self.macroDict:
+                currentState = False
+            if len(self.stateStack) > 0:
+                if not self.stateStack[-1][1] or not self.stateStack[-1][2]:
+                    lastState = False
+            self.stateStack.append(['if', currentState, lastState])
+        elif macroState == 'define':
+            if len(macroName) > 0:
                 if len(self.stateStack) == 0 or self.stateStack[-1][1] and self.stateStack[-1][2]:
+                    if len(macroValue) > 0:
+                        result = self._parseMacroValue(macroValue)
+                        self.macroDict[macroName] = result
+                    else:
+                        self.macroDict[macroName] = None
+        elif macroState == 'ifdef':
+            currentState = True
+            lastState = True
+            if macroName not in self.macroDict:
+                currentState = False
+            if len(self.stateStack) > 0:
+                if not self.stateStack[-1][1] or not self.stateStack[-1][2]:
+                    lastState = False
+            self.stateStack.append(['if', currentState, lastState])
+        elif macroState == 'else':
+            content = self.stateStack[-1]
+            if content[0] == 'if':
+                self.stateStack.append(['else', not content[1], content[2]])
+            else:
+                raise NameError('many else!')
+        elif macroState == 'endif':
+            if len(self.stateStack) == 0:
+                raise NameError('no if!')
+            else:
+                while self.stateStack[-1][0] != 'if':
+                    self.stateStack.pop()
+                self.stateStack.pop()
+        elif macroState == 'undef':
+            if len(self.stateStack) == 0 or self.stateStack[-1][1] and self.stateStack[-1][2]:
+                if macroName in self.macroDict:
                     del self.macroDict[macroName]
 
 
     def _parseComment(self, line):
         outStr = ''
-        for i in range(len(line)):
+        i = 0
+        while i < len(line):
             if self.hasPreComment:
-                if line[i] == '/':
-                    self.hasPreComment = False
-            else:
-                if line[i] != '/':
-                    outStr += line[i]
-                else:
-                    if line[i+1] == '*':
-                        self.hasPreComment = True
-                        i += 1
-                    elif line[i+1] == '/':
+                while i < len(line):
+                    if i + 1 < len(line) and line[i: i+2] == '*/':
+                        self.hasPreComment = False
+                        i += 2
                         break
+                    i += 1
+            else:
+                hasTag = False
+                if line[i] == '\\':
+                    hasTag = not hasTag
+                else:
+                    hasTag = False
+                if line[i] == '\"' and not hasTag:
+                    outStr += line[i]
+                    i += 1
+                    while i < len(line):
+                        if line[i] == '\\':
+                            hasTag = not hasTag
+                        else:
+                            hasTag = False
+                        outStr += line[i]
+                        i += 1
+                        if i < len(line) and line[i] == '\"' and not hasTag:
+                            outStr += line[i]
+                            i += 1
+                            break
+                elif i + 1 < len(line) and line[i: i+2] == '/*':
+                    self.hasPreComment = True
+                    i = i + 2
+                elif i + 1 < len(line) and line[i: i+2] == '//':
+                    break
+                else:
+                    outStr += line[i]
+                    i += 1
+
+        # left = 0
+        # right = len(line)
+        # while left < len(line):
+        #     if line[left] == '\"':
+        #         break
+        #     else:
+        #         left += 1
+        # if left != len(line):
+        #     right = len(line) - 1
+        #     while right >= 0:
+        #         if line[right] == '\"':
+        #             break
+        #         else:
+        #             right -= 1
+        # outStr = ''
+        # i = 0
+        # while i < len(line):
+        #     if self.hasPreComment:
+        #         if line[i] == '/' and line[i-1] == '*':
+        #             self.hasPreComment = False
+        #         i += 1
+        #     else:
+        #         if i == left:
+        #             outStr += line[left: right+1]
+        #             i = right + 1
+        #         else:
+        #             if line[i] != '/':
+        #                 outStr += line[i]
+        #                 i += 1
+        #             else:
+        #                 if line[i+1] == '*':
+        #                     self.hasPreComment = True
+        #                     i += 2
+        #                 elif line[i+1] == '/':
+        #                     break
 
         return outStr
 
@@ -185,24 +269,35 @@ class PyMacroParser(object):
     def _parseTuple(self, value):
         tupleStack = []
         part = ''
+        hasQuato = False
+        hasTag = False
         for c in value:
-            if c == '{':
-                tupleStack.append('{')
-            elif c == '}':
-                part = part.strip()
-                if len(part) > 0:
-                    tupleStack.append(self._parseBaseValue(part))
-                    part = ''
-                list = []
-                while tupleStack[-1] != '{':
-                    list.insert(0, tupleStack.pop())
-                tupleStack.pop()
-                tupleStack.append(tuple(list))
-            elif c == ',':
-                part = part.strip()
-                if len(part) > 0:
-                    tupleStack.append(self._parseBaseValue(part.strip()))
-                    part = ''
+            if c == '\\':
+                hasTag = not hasTag
+            else:
+                if c == '\"' and not hasTag:
+                    hasQuato = not hasQuato
+                hasTag = False
+            if not hasQuato:
+                if c == '{':
+                    tupleStack.append('{')
+                elif c == '}':
+                    part = part.strip()
+                    if len(part) > 0:
+                        tupleStack.append(self._parseBaseValue(part))
+                        part = ''
+                    list = []
+                    while tupleStack[-1] != '{':
+                        list.insert(0, tupleStack.pop())
+                    tupleStack.pop()
+                    tupleStack.append(tuple(list))
+                elif c == ',':
+                    part = part.strip()
+                    if len(part) > 0:
+                        tupleStack.append(self._parseBaseValue(part.strip()))
+                        part = ''
+                else:
+                    part += c
             else:
                 part += c
         return tupleStack.pop()
