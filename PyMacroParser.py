@@ -24,6 +24,7 @@ class PyMacroParser(object):
         except IOError:
             print "cannot read file"
         self.totalLine = len(self.lines)
+        self._preparse()
 
     def preDefine(self, s):
         self.preDefinedMacro.clear()
@@ -33,9 +34,9 @@ class PyMacroParser(object):
             macro = macro.strip()
             if len(macro) > 0:
                 self.preDefinedMacro[macro] = None
+        self._preparse()
 
     def dumpDict(self):
-        self._preparse()
         return self.macroDict.copy()
 
     def dump(self, f):
@@ -51,8 +52,15 @@ class PyMacroParser(object):
         except IOError:
             print "cannot write file"
 
-    def _preparse(self):
+    def _initMembers(self):
         self.macroDict.clear()
+        self.parsedLines = []
+        self.currentLine = 0
+        self.hasPreComment = False
+        self.stateStack = []
+
+    def _preparse(self):
+        self._initMembers()
 
         for name, value in self.preDefinedMacro.items():
             self.macroDict[name] = value
@@ -196,43 +204,6 @@ class PyMacroParser(object):
                 else:
                     outStr += line[i]
                     i += 1
-
-        # left = 0
-        # right = len(line)
-        # while left < len(line):
-        #     if line[left] == '\"':
-        #         break
-        #     else:
-        #         left += 1
-        # if left != len(line):
-        #     right = len(line) - 1
-        #     while right >= 0:
-        #         if line[right] == '\"':
-        #             break
-        #         else:
-        #             right -= 1
-        # outStr = ''
-        # i = 0
-        # while i < len(line):
-        #     if self.hasPreComment:
-        #         if line[i] == '/' and line[i-1] == '*':
-        #             self.hasPreComment = False
-        #         i += 1
-        #     else:
-        #         if i == left:
-        #             outStr += line[left: right+1]
-        #             i = right + 1
-        #         else:
-        #             if line[i] != '/':
-        #                 outStr += line[i]
-        #                 i += 1
-        #             else:
-        #                 if line[i+1] == '*':
-        #                     self.hasPreComment = True
-        #                     i += 2
-        #                 elif line[i+1] == '/':
-        #                     break
-
         return outStr
 
     def _parseMacroValue(self, value):
@@ -379,7 +350,6 @@ a1.dump(filename)
 a2.load(filename)
 a2.dumpDict()
 a1.preDefine("MC1;MC2")
-a1.preDefine("MC1")
 a1.dumpDict()
 a1.dump(output)
 
