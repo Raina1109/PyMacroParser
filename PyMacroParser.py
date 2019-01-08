@@ -10,6 +10,10 @@ class PyMacroParser(object):
     stateStack = []
     _special = {'a': '\a', 'b': '\b', 'f': '\f', 'n': '\n', 'r': '\r', 't': '\t', 'v': '\v', '\\': '\\', '\'': '\'',
                 '\"': '\"', '0': '\0'}
+    _dumpSpecial = {'\a': 'a', '\b': 'b', '\f': 'f', '\n': 'n', '\r': 'r', '\t': 't', '\v': 'v', '\\': '\\', '\'': '\'',
+                    '\"': '\"', '\0': '0'}
+    _16number = {'0': 0, '1': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9, 'a': 10, 'b': 11,
+                 'c': 12, 'd': 13, 'e': 14, 'f': 15, 'A': 10, 'B': 11, 'C': 12, 'D': 13, 'E': 14, 'F': 15}
 
     def __init__(self):
         self.lines = []
@@ -329,7 +333,7 @@ class PyMacroParser(object):
 
     def _parseChar(self, value):
         value = value[1:]
-        if value[0] == '\\' and len(value) > 1 and value[1] in _special:
+        if value[0] == '\\' and len(value) > 1 and value[1] in self._special:
             return ord(_special[value[1]])
         if value[0] == '\\' and len(value) > 1 and value[1] == 'x':
             return self._parse16Number(value[2: -1])
@@ -339,13 +343,11 @@ class PyMacroParser(object):
             return ord(value[0])
 
     def _parse16Number(self, value):
-        _16number = {'0': 0, '1': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9, 'a': 10, 'b': 11,
-                     'c': 12, 'd': 13, 'e': 14, 'f': 15, 'A': 10, 'B': 11, 'C': 12, 'D': 13, 'E': 14, 'F': 15}
         length = len(value)
         num = 0
         for i in range(length):
-            if value[i] in _16number:
-                num += pow(16, length - i - 1) * _16number[value[i]]
+            if value[i] in self._16number:
+                num += pow(16, length - i - 1) * self._16number[value[i]]
             else:
                 raise NameError('Invalid 16 number!')
         return num
@@ -362,11 +364,47 @@ class PyMacroParser(object):
 
     def _parseLongString(self, value):
         value = value[2: -1]
+        value = self._parseString(value)
         return unicode(value)
 
     def _parseString(self, value):
         value = value[1: -1]
-        return value
+        i = 0
+        result = ''
+        while i < len(value):
+            if value[i] == '\\' and i + 1 < len(value) and value[i+1] in self._special:
+                result += self._special[value[i+1]]
+                i += 2
+            elif value[i] == '\\' and i + 1 < len(value) and value[i+1] == 'x':
+                i += 2
+                endIndex = i
+                maxIndex = i + 2
+                while endIndex < len(value) and endIndex <= maxIndex:
+                    if value[endIndex] in self._16number:
+                        endIndex += 1
+                    else:
+                        break
+                if endIndex == i:
+                    raise NameError('Not valid 16 number')
+                else:
+                    result += chr(self._parse16Number(value[i: endIndex]))
+                    i = endIndex
+            elif value[i] == '\\':
+                i += 1
+                endIndex = i
+                maxIndex = i + 3
+                while endIndex < len(value) and endIndex <= maxIndex:
+                    if value[endIndex].isdigit() and int(value[endIndex]) in range(8):
+                        endIndex += 1
+                    else:
+                        break
+                if endIndex > i:
+                    result += chr(self._parse8Number(value[i: endIndex]))
+                    i = endIndex
+            else:
+                result += value[i]
+                i += 1
+        return result
 
     def _parseBool(self, value):
         if value == 'true':
@@ -392,9 +430,9 @@ class PyMacroParser(object):
 
     def _dumpBasicType(self, value):
         if isinstance(value, unicode):
-            return 'L"' + value + '"'
+            return 'L"' + self._dumpString(value) + '"'
         elif isinstance(value, str):
-            return '"' + value + '"'
+            return '"' + self._dumpString(value) + '"'
         elif value == None:
             return ''
         elif type(value) == bool:
@@ -404,6 +442,15 @@ class PyMacroParser(object):
                 return 'false'
         else:
             return str(value)
+
+    def _dumpString(self, value):
+        result = ''
+        for i in range(len(value)):
+            if value[i] in self._dumpSpecial:
+                result += '\\' + self._dumpSpecial[value[i]]
+            else:
+                result += value[i]
+        return result
 
 
 f = "/Users/Raina/Desktop/a.cpp"
