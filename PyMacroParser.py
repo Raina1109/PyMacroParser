@@ -8,6 +8,8 @@ class PyMacroParser(object):
     totalLine = 0
     hasPreComment = False
     stateStack = []
+    _special = {'a': '\a', 'b': '\b', 'f': '\f', 'n': '\n', 'r': '\r', 't': '\t', 'v': '\v', '\\': '\\', '\'': '\'',
+                '\"': '\"', '0': '\0'}
 
     def __init__(self):
         self.lines = []
@@ -117,6 +119,8 @@ class PyMacroParser(object):
         while index < len(sentence):
             macroValue += sentence[index]
             index += 1
+        if len(macroValue) > 0 and macroValue[0] == "\"":
+            macroValue = self._combineString(macroValue)
         #print 'macroState: ' + macroState
         #print 'macroName: ' + macroName
         #print 'macroValue: ' + macroValue
@@ -163,6 +167,31 @@ class PyMacroParser(object):
             if len(self.stateStack) == 0 or self.stateStack[-1][1] and self.stateStack[-1][2]:
                 if macroName in self.macroDict:
                     del self.macroDict[macroName]
+
+    def _combineString(self, macroValue):
+        index = 0
+        result = '\"'
+        while index < len(macroValue):
+            start = self._findQuato(macroValue, index)
+            if start == len(macroValue):
+                return macroValue
+            end = self._findQuato(macroValue, start + 1)
+            result += macroValue[start+1: end]
+            index = end + 1
+        result += '\"'
+        return result
+
+    def _findQuato(self, string, index):
+        hasTag = False
+        while index < len(string):
+            if string[index] == '\\':
+                hasTag = not hasTag
+            else:
+                hasTag = False
+                if string[index] == '\"' and not hasTag:
+                    return index
+            index += 1
+        return index
 
 
     def _parseComment(self, line):
@@ -212,20 +241,38 @@ class PyMacroParser(object):
         return self._parseBaseValue(value)
 
     def _parseBaseValue(self, value):
-        if value[-1] == 'f':
+        if value[0] == '-' or value[0] == '+':
+            result = self._parseBaseValue(value[1:].strip())
+            if type(result) != int and type(result) != float:
+                raise NameError('not valid number')
+            else:
+                if value[0] == '-':
+                    return -1 * result
+                else:
+                    return result
+        if value[-1] == 'f' or value[-1] == 'F':
             return self._parseFloat(value[0: -1])
-        if value.isdigit():
-            return self._parseInt(value)
         if value[0] == '\'':
             return self._parseChar(value)
         if value[0: 2] == '0x':
-            return self._parse16Number(value)
+            return self._parse16Number(value[2:])
+        if value[0] == '0':
+            return self._parse8Number(value[1:])
+        if value.isdigit():
+            return self._parseInt(value)
+        if value[-1] == 'L' or value[-1] == 'l':
+            if '.' in value:
+                return self._parseFloat(value[0: -1])
+            else:
+                return self._parseInt(value[0: -1])
         if value[0] == 'L':
             return self._parseLongString(value)
         if value[0] == '\"':
             return self._parseString(value)
         if value == 'true' or value == 'false':
             return self._parseBool(value)
+        if 'e' in value or 'E' in value:
+            return self._parseScientific(value)
         if '.' in value:
             count = 0
             for c in value:
@@ -281,11 +328,17 @@ class PyMacroParser(object):
         return int(value)
 
     def _parseChar(self, value):
-        value = value[1]
-        return ord(value)
+        value = value[1:]
+        if value[0] == '\\' and len(value) > 1 and value[1] in _special:
+            return ord(_special[value[1]])
+        if value[0] == '\\' and len(value) > 1 and value[1] == 'x':
+            return self._parse16Number(value[2: -1])
+        if value[0] == '\\' and len(value) > 1:
+            return self._parse8Number(value[1: -1])
+        else:
+            return ord(value[0])
 
     def _parse16Number(self, value):
-        value = value[2:]
         _16number = {'0': 0, '1': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9, 'a': 10, 'b': 11,
                      'c': 12, 'd': 13, 'e': 14, 'f': 15, 'A': 10, 'B': 11, 'C': 12, 'D': 13, 'E': 14, 'F': 15}
         length = len(value)
@@ -295,6 +348,16 @@ class PyMacroParser(object):
                 num += pow(16, length - i - 1) * _16number[value[i]]
             else:
                 raise NameError('Invalid 16 number!')
+        return num
+
+    def _parse8Number(self, value):
+        length = len(value)
+        num = 0
+        for i in range(length):
+            if int(value[i]) in range(0, 8):
+                num += pow(8, length - i - 1) * int(value[i])
+            else:
+                raise NameError('Invalid 8 number!')
         return num
 
     def _parseLongString(self, value):
@@ -310,6 +373,9 @@ class PyMacroParser(object):
             return True
         else:
             return False
+
+    def _parseScientific(self, value):
+        return float(value)
 
     def _dumpTuple(self, value):
         result = ''
