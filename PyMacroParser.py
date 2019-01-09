@@ -148,9 +148,9 @@ class PyMacroParser(object):
                     lastState = False
             self.stateStack.append(['if', currentState, lastState])
         elif macroState == 'define':
-            self._checkNameLegal(macroName)
             if len(macroName) > 0:
                 if len(self.stateStack) == 0 or self.stateStack[-1][1] and self.stateStack[-1][2]:
+                    self._checkNameLegal(macroName)
                     if len(macroValue) > 0:
                         result = self._parseMacroValue(macroValue)
                         self.macroDict[macroName] = result
@@ -336,7 +336,6 @@ class PyMacroParser(object):
         part = ''
         hasQuato = False
         hasTag = False
-        lastIsBracket = False
         for c in value:
             if c == '\\':
                 hasTag = not hasTag
@@ -347,30 +346,23 @@ class PyMacroParser(object):
             if not hasQuato:
                 if c == '{':
                     tupleStack.append('{')
-                    lastIsBracket = False
                 elif c == '}':
                     part = part.strip()
                     if len(part) > 0:
                         tupleStack.append(self._parseBaseValue(part))
                         part = ''
-                    else:
-                        if not lastIsBracket:
-                            tupleStack.append(None)
                     list = []
                     while tupleStack[-1] != '{':
                         list.insert(0, tupleStack.pop())
                     tupleStack.pop()
                     tupleStack.append(tuple(list))
-                    lastIsBracket = True
                 elif c == ',':
                     part = part.strip()
                     if len(part) > 0:
                         tupleStack.append(self._parseBaseValue(part.strip()))
                         part = ''
-                    lastIsBracket = False
                 else:
                     part += c
-                    lastIsBracket = False
             else:
                 part += c
         return tupleStack.pop()
@@ -478,7 +470,8 @@ class PyMacroParser(object):
             else:
                 result += self._dumpBasicType(item)
             result += ', '
-        result = result[0: -2]
+        if len(result) > 1:
+            result = result[0: -2]
         result += '}'
         return result
 
@@ -508,7 +501,7 @@ class PyMacroParser(object):
 
 
 if __name__ == '__main__':
-    f = "/Users/Raina/Desktop/tests/test-015.cpp"
+    f = "/Users/Raina/Desktop/tests/test-007.cpp"
     filename = "/Users/Raina/Desktop/b.cpp"
     output = "/Users/Raina/Desktop/c.cpp"
     a1 = PyMacroParser()
@@ -517,7 +510,7 @@ if __name__ == '__main__':
     a1.dump(filename)
     a2.load(filename)
     a2.dumpDict()
-    a1.preDefine("float4")
+    a1.preDefine("MC1;MC2")
     a1.dumpDict()
     a1.dump(output)
 
