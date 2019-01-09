@@ -308,7 +308,7 @@ class PyMacroParser(object):
             return self._parseFloat(value[0: -1])
         if value[0] == '\'':
             return self._parseChar(value)
-        if value[0] == '0' and value[1] != '.':
+        if value[0] == '0' and len(value) > 1 and value[1] != '.':
             return self._parse8Number(value[1:])
         if value.isdigit():
             return self._parseInt(value)
