@@ -1,14 +1,6 @@
 # -*- coding: utf-8 -*
-import copy
+import string
 class PyMacroParser(object):
-    lines = []            # codes read from c++ file
-    parsedLines = []
-    preDefinedMacro = {}  # pre-defined macro dictionary
-    macroDict = {}        # macro transfer dictionary
-    currentLine = 0
-    totalLine = 0
-    hasPreComment = False
-    stateStack = []
     _special = {'a': '\a', 'b': '\b', 'f': '\f', 'n': '\n', 'r': '\r', 't': '\t', 'v': '\v', '\\': '\\', '\'': '\'',
                 '\"': '\"', '0': '\0'}
     _dumpSpecial = {'\a': 'a', '\b': 'b', '\f': 'f', '\n': 'n', '\r': 'r', '\t': 't', '\v': 'v', '\\': '\\', '\'': '\'',
@@ -17,7 +9,14 @@ class PyMacroParser(object):
                  'c': 12, 'd': 13, 'e': 14, 'f': 15, 'A': 10, 'B': 11, 'C': 12, 'D': 13, 'E': 14, 'F': 15}
 
     def __init__(self):
-        self.lines = []
+        self.lines = []  # codes read from c++ file
+        self.parsedLines = []
+        self.preDefinedMacro = {}  # pre-defined macro dictionary
+        self.macroDict = {}  # macro transfer dictionary
+        self.currentLine = 0  # currently handling line number
+        self.totalLine = 0
+        self.hasPreComment = False  # for indicating whether has /* before
+        self.stateStack = []  # for dealing with statements
 
     def load(self, f):
         self.lines = []
@@ -29,22 +28,22 @@ class PyMacroParser(object):
                         self.lines.append(line)
                 file.close()
         except IOError:
-            print "cannot read file"
+            raise IOError("cannot read file")
         self.totalLine = len(self.lines)
         self._preparse()
 
     def preDefine(self, s):
-        self.preDefinedMacro.clear()
+        self.preDefinedMacro.clear() #need to clear before another defination
 
         macros = s.split(';')
-        for macro in macros:
+        for macro in macros:         #add predefined macro to current macro dictionary
             macro = macro.strip()
             if len(macro) > 0:
                 self.preDefinedMacro[macro] = None
         self._preparse()
 
     def dumpDict(self):
-        return self._copyDict()
+        return self._copyDict()     #return deepcopy, not shadow copy
 
     def dump(self, f):
         try:
@@ -60,7 +59,7 @@ class PyMacroParser(object):
                 file.write(''.join(content))
                 file.close()
         except IOError:
-            print "cannot write file"
+            raise IOError("cannot write file")
 
     def _initMembers(self):
         self.macroDict.clear()
@@ -70,14 +69,14 @@ class PyMacroParser(object):
         self.stateStack = []
 
     def _preparse(self):
-        self._initMembers()
+        self._initMembers()     #need to initialize everytime
 
-        for name, value in self.preDefinedMacro.items():
-            self.macroDict[name] = value
+        it = iter(self.preDefinedMacro)
+        for key in it:
+            self.macroDict[key] = self.preDefinedMacro[key]
 
-        self.currentLine = 0
         while self.currentLine < self.totalLine:
-            sentence = self._getSentence()
+            sentence = self._getSentence()  #one sentence may exist in many lines
             self._parseSentence(sentence)
 
     def _getSentence(self):
@@ -88,12 +87,12 @@ class PyMacroParser(object):
                 line = self.parsedLines[self.currentLine]
             else:
                 line = self.lines[self.currentLine]
-                line = self._parseComment(line)
-                self.parsedLines.append(line)
-            if len(line) == 0:
+                line = self._parseComment(line)  # delete comments
+                self.parsedLines.append(line.strip())
+            if len(line.strip()) == 0:
                 self.currentLine += 1
             else:
-                if line.strip()[0] != '#':
+                if line.strip()[0] != '#': #every statement should start with '#'
                     self.currentLine += 1
                     sentence.append(line)
                 else:
@@ -107,16 +106,18 @@ class PyMacroParser(object):
         return ''.join(sentence)
 
     def _parseSentence(self, sentence):
-        invalid = {' ', '\t', '\r', '\f'}
+        invalid = string.whitespace
         macroState = []
         index = 1
         length = len(sentence)
+        #get judgement sentence
         while index < length and sentence[index] in invalid:
             index += 1
         while index < length and sentence[index] not in invalid:
             macroState.append(sentence[index])
             index += 1
         macroState = ''.join(macroState)
+        #get macroname
         while index < length and sentence[index] in invalid:
             index += 1
         macroName = []
@@ -124,6 +125,7 @@ class PyMacroParser(object):
             macroName.append(sentence[index])
             index += 1
         macroName = ''.join(macroName)
+        #get macro value
         macroValue = []
         while index < length and sentence[index] in invalid:
             index += 1
@@ -131,11 +133,9 @@ class PyMacroParser(object):
             macroValue.append(sentence[index])
             index += 1
         macroValue = ''.join(macroValue)
-        if len(macroValue) > 0 and (macroValue[0] == "\"" or macroValue[0] == 'L'):
-            macroValue = self._combineString(macroValue)
-        #print 'macroState: ' + macroState
-        #print 'macroName: ' + macroName
-        #print 'macroValue: ' + macroValue
+
+        #for statement, we have two situation, current and parent
+        #current is used for else statement, if current and parent statement are both true, we can do the following operations
         if macroState == 'ifndef':
             currentState = True
             lastState = True
@@ -148,7 +148,7 @@ class PyMacroParser(object):
                     lastState = False
             self.stateStack.append(['if', currentState, lastState])
         elif macroState == 'define':
-            if len(macroName) > 0:
+            if len(macroName) > 0: #empty define may exist
                 if len(self.stateStack) == 0 or self.stateStack[-1][1] and self.stateStack[-1][2]:
                     self._checkNameLegal(macroName)
                     if len(macroValue) > 0:
@@ -186,6 +186,8 @@ class PyMacroParser(object):
             if len(self.stateStack) == 0 or self.stateStack[-1][1] and self.stateStack[-1][2]:
                 if macroName in self.macroDict:
                     del self.macroDict[macroName]
+        else:
+            raise NameError('Not valid statement!')
 
     def _checkNameLegal(self, macroName):
         if not macroName[0].isalpha() and macroName[0] != '_':
@@ -195,6 +197,7 @@ class PyMacroParser(object):
                 raise NameError('Not valid macroname!')
 
     def _macroNameCut(self, macroName):
+        #for the case #ifdef a;123
         index = 1
         length = len(macroName)
         while index < length:
@@ -204,34 +207,38 @@ class PyMacroParser(object):
         return macroName
 
     def _combineString(self, macroValue):
+        #need to combine string and know it is long string or common string
+        isLong = False
         result = []
+        result.append('\"')
         if macroValue[0] == 'L':
-            result.append('L\"')
             index = 1
         else:
-            result.append('\"')
             index = 0
         length = len(macroValue)
         while index < length:
-            start = self._findQuato(macroValue, index)
-            if start == len(macroValue):
+            start = self._findQuato(macroValue, index, '\"')
+            if macroValue[start-1] == 'L':
+                isLong = True
+            if start == length:
                 return macroValue
-            end = self._findQuato(macroValue, start + 1)
-            if end == len(macroValue):
+            end = self._findQuato(macroValue, start + 1, '\"')
+            if end == length:
                 raise NameError('Not valid string!')
             result.append(macroValue[start+1: end])
             index = end + 1
         result.append('\"')
-        return ''.join(result)
+        return ''.join(result), isLong
 
-    def _findQuato(self, string, index):
-        hasTag = False
+    def _findQuato(self, string, index, quato):
+        #used for find the start and end of " to find a string
+        hasTag = False #considering zhuanyi
         length = len(string)
         while index < length:
             if string[index] == '\\':
                 hasTag = not hasTag
             else:
-                if string[index] == '\"' and not hasTag:
+                if string[index] == quato and not hasTag:
                     return index
                 hasTag = False
             index += 1
@@ -245,37 +252,29 @@ class PyMacroParser(object):
         while i < length:
             if self.hasPreComment:
                 while i < length:
-                    if i + 1 < len(line) and line[i: i+2] == '*/':
+                    if i + 1 < len(line) and line[i: i+2] == '*/': #if has /* before, all these ignored until find '*/
                         self.hasPreComment = False
                         i += 2
                         outStr.append(' ')
                         break
                     i += 1
             else:
-                hasTag = False
-                if line[i] == '\\':
-                    hasTag = not hasTag
-                else:
-                    hasTag = False
-                if line[i] == '\"' and not hasTag:
-                    outStr.append(line[i])
-                    i += 1
-                    while i < length:
-                        if line[i] == '\\':
-                            hasTag = not hasTag
-                        else:
-                            hasTag = False
-                        outStr.append(line[i])
-                        i += 1
-                        if i < len(line) and line[i] == '\"' and not hasTag:
-                            outStr.append(line[i])
-                            i += 1
-                            break
-                elif i + 1 < len(line) and line[i: i+2] == '/*':
+                #need to consider if these comment tags are in the string
+                if line[i] == '\"':
+                    next = self._findQuato(line, i + 1, '\"')
+                    outStr.append(line[i: next+1])
+                    i = next + 1
+                elif line[i] == '\'':
+                    next = self._findQuato(line, i + 1, '\'')
+                    outStr.append(line[i: next+1])
+                    i = next + 1
+                elif i + 1 < length and line[i: i+2] == '/*':
                     self.hasPreComment = True
                     i = i + 2
-                elif i + 1 < len(line) and line[i: i+2] == '//':
+                elif i + 1 < length and line[i: i+2] == '//':
                     break
+                elif i + 1 < length and line[i: i+2] == '*/':
+                    raise NameError('invalid commnet!')
                 else:
                     outStr.append(line[i])
                     i += 1
@@ -307,20 +306,18 @@ class PyMacroParser(object):
                     return result
         if value[-1] == 'U' or value[-1] == 'u' or value[-1] == 'L' or value[-1] == 'l':
             return self._parseBaseValue(value[0: -1])
-        if value[0: 2] == '0x':
+        if value[0: 2] == '0x' or value[0: 2] == '0X':
             return self._parse16Number(value[2:])
         if value[-1] == 'f' or value[-1] == 'F':
             return self._parseBaseValue(value[0: -1])
         if value[0] == '\'':
-            return self._parseChar(value)
-        if value[0] == '0' and len(value) > 1 and value[1] != '.':
+            return self._parseChar(value[1: -1])
+        if value[0] == '0' and len(value) > 1 and value.isdigit():
             return self._parse8Number(value[1:])
         if value.isdigit():
             return self._parseInt(value)
-        if value[0] == 'L':
-            return self._parseLongString(value)
-        if value[0] == '\"':
-            return self._parseString(value)
+        if value[0] == 'L' or value[0] == '\"':
+            return self._parseStringSet(value)
         if value == 'true' or value == 'false':
             return self._parseBool(value)
         if 'e' in value or 'E' in value:
@@ -335,41 +332,46 @@ class PyMacroParser(object):
                 elif not c.isdigit():
                     raise NameError('not valid float number')
             return self._parseFloat(value)
+        raise NameError('Not valid type!')
 
     def _parseTuple(self, value):
         tupleStack = []
         part = []
-        hasQuato = False
-        hasTag = False
-        for c in value:
-            if c == '\\':
-                hasTag = not hasTag
-            else:
-                if c == '\"' and not hasTag:
-                    hasQuato = not hasQuato
-                hasTag = False
-            if not hasQuato:
-                if c == '{':
-                    tupleStack.append('{')
-                elif c == '}':
-                    result = ''.join(part).strip()
-                    if len(result) > 0:
-                        tupleStack.append(self._parseBaseValue(result))
-                        part = []
-                    list = []
-                    while tupleStack[-1] != '{':
-                        list.insert(0, tupleStack.pop())
-                    tupleStack.pop()
-                    tupleStack.append(tuple(list))
-                elif c == ',':
-                    result = ''.join(part).strip()
-                    if len(result) > 0:
-                        tupleStack.append(self._parseBaseValue(result))
-                        part = []
-                else:
-                    part.append(c)
+        index = 0
+        length = len(value)
+        while index < length:
+            c = value[index]
+            if c == '\"':
+                next = self._findQuato(value, index + 1, '\"')
+                part.append(value[index: next+1])
+                index = next + 1
+            elif c == '\'':
+                next = self._findQuato(value, index + 1, '\'')
+                part.append(value[index: next+1])
+                index = next + 1
+            elif c == '{':
+                tupleStack.append('\{')
+                index += 1
+            elif c == '}':
+                result = ''.join(part).strip()
+                if len(result) > 0:
+                    tupleStack.append(self._parseBaseValue(result))
+                    part = []
+                list = []
+                while tupleStack[-1] != '\{':
+                    list.insert(0, tupleStack.pop())
+                tupleStack.pop()
+                tupleStack.append(tuple(list))
+                index += 1
+            elif c == ',':
+                result = ''.join(part).strip()
+                if len(result) > 0:
+                    tupleStack.append(self._parseBaseValue(result))
+                    part = []
+                index += 1
             else:
                 part.append(c)
+                index += 1
         return tupleStack.pop()
 
 
@@ -380,13 +382,17 @@ class PyMacroParser(object):
         return int(value)
 
     def _parseChar(self, value):
-        value = value[1:]
-        if value[0] == '\\' and len(value) > 1 and value[1] in self._special:
+        length = len(value)
+        if length == 0 or length == 1 and value[0] == '\\':
+            raise NameError('Not valid char!')
+        if value[0] == '\\' and value[1] in self._special: #zhuanyi
             return ord(self._special[value[1]])
-        if value[0] == '\\' and len(value) > 1 and value[1] == 'x':
-            return self._parse16Number(value[2: -1])
-        if value[0] == '\\' and len(value) > 1:
-            return self._parse8Number(value[1: -1])
+        if value[0] == '\\' and value[1] == 'x': #16 jinzhi
+            return self._parse16Number(value[2:])
+        if value[0] == '\\' and int(value[1]) in range(8): #8 jinzhi
+            return self._parse8Number(value[1:])
+        elif value[0] == '\\': #\p igonre \
+            return ord(value[1])
         else:
             return ord(value[0])
 
@@ -411,15 +417,23 @@ class PyMacroParser(object):
         return num
 
     def _parseLongString(self, value):
-        value = value[1:]
         value = self._parseString(value)
         return unicode(value)
+
+    def _parseStringSet(self, value):
+        value, isLong = self._combineString(value)
+        if isLong:
+            return self._parseLongString(value)
+        else:
+            return self._parseString(value)
 
     def _parseString(self, value):
         value = value[1: -1]
         i = 0
         result = []
         length = len(value)
+        if length == 0:
+            return ''
         while i < length:
             if value[i] == '\\':
                 if i + 1 >= len(value):
@@ -430,7 +444,7 @@ class PyMacroParser(object):
                 elif value[i+1] == 'x':
                     i += 2
                     endIndex = i
-                    maxIndex = i + 2
+                    maxIndex = i + 1
                     while endIndex < length and endIndex <= maxIndex:
                         if value[endIndex] in self._16number:
                             endIndex += 1
@@ -444,7 +458,7 @@ class PyMacroParser(object):
                 else:
                     i += 1
                     endIndex = i
-                    maxIndex = i + 3
+                    maxIndex = i + 2
                     while endIndex < length and endIndex <= maxIndex:
                         if value[endIndex].isdigit() and int(value[endIndex]) in range(8):
                             endIndex += 1
@@ -453,6 +467,9 @@ class PyMacroParser(object):
                     if endIndex > i:
                         result.append(chr(self._parse8Number(value[i: endIndex])))
                         i = endIndex
+                    else:
+                        result.append(value[i])
+                        i += 1
             else:
                 result.append(value[i])
                 i += 1
@@ -542,18 +559,16 @@ class PyMacroParser(object):
 
 
 if __name__ == '__main__':
-    f = "/Users/Raina/Desktop/网易作业/Test/test03.cpp"
-    filename = "/Users/Raina/Desktop/b.cpp"
-    output = "/Users/Raina/Desktop/c.cpp"
     a1 = PyMacroParser()
     a2 = PyMacroParser()
-    a1.load(f)
+    a1.load("/Users/Raina/Desktop/网易作业/Test/test09.cpp")
+    filename = "/Users/Raina/Desktop/b.cpp"
     a1.dump(filename)
     a2.load(filename)
-    dict = a2.dumpDict()
+    a2.dumpDict()
     a1.preDefine("MC1;MC2")
     a1.dumpDict()
-    a1.dump(output)
+    a1.dump("/Users/Raina/Desktop/c.cpp")
 
 
 
